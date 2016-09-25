@@ -18,7 +18,7 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public long open(String exportName) throws IOException {
+	public long open(CharSequence exportName) throws IOException {
 		System.out.println("basePath=" + basePath.getAbsolutePath());
 
 		File file = new File(basePath, exportName + ".img");
@@ -35,7 +35,7 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public ByteBuffer read(String exportName, long offset, long length) throws IOException {
+	public ByteBuffer read(CharSequence exportName, long offset, long length) throws IOException {
 		ByteBuffer bb = ByteBuffer.allocate((int) length);
 		channel.position(offset);
 		channel.read(bb);
@@ -44,7 +44,7 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public void write(String exportName, long offset, long length, ByteBuffer message) throws IOException {
+	public void write(CharSequence exportName, long offset, long length, ByteBuffer message) throws IOException {
 		assert message != null;
 		assert length == message.remaining();
 
@@ -53,12 +53,12 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public void flush(String exportName) throws IOException {
+	public void flush(CharSequence exportName) throws IOException {
 		channel.force(true);
 	}
 
 	@Override
-	public void trim(String exportName) {
+	public void trim(CharSequence exportName) {
 		throw new UnsupportedOperationException();
 	}
 }

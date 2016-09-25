@@ -3,9 +3,13 @@ package de.m3y3r.nnbd;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.util.ReferenceCountUtil;
 
 public class NbdHandler extends ChannelInboundHandlerAdapter {
 
@@ -19,32 +23,35 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 
 	private int clientFlags;
 
-	private int port;
-
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
-		super.channelActive(ctx);
 		exportProvider = new FileExportProvider(new File("nbd-server"));
-		receiveMessage(ctx, null);
-
 		initHandshake(ctx);
 		state = State.HS_CLIENT_FLAGS;
 	}
 
-	public void receiveMessage(ChannelHandlerContext ctx, ByteBuffer message) throws IOException {
-		switch(state) {
-		case HS_CLIENT_FLAGS:
-			receiveHandshakeClientFlag(ctx, message);
-			state = State.HS_OPTION_HAGGLING;
-			break;
-		case HS_OPTION_HAGGLING:
-			/* state transition happens in method! */
-			receiveHandshakeOption(ctx, message);
-			break;
-		case TM_CMD:
-			receiveTransmissionCommand(ctx, message);
-			break;
+	@Override
+	public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+		ByteBuf bb = (ByteBuf) msg;
+
+		while(bb.readableBytes() > 0) {
+			/* The NBD protocol has two phases: the handshake (HS_) and the transmission (TM_) */
+			switch(state) {
+			case HS_CLIENT_FLAGS:
+				receiveHandshakeClientFlag(ctx, bb);
+				state = State.HS_OPTION_HAGGLING;
+				break;
+			case HS_OPTION_HAGGLING:
+				/* state transition happens in method! */
+				receiveHandshakeOption(ctx, bb);
+				break;
+			case TM_CMD:
+				receiveTransmissionCommand(ctx, bb);
+				break;
+			}
 		}
+
+		ReferenceCountUtil.release(msg);
 	}
 
 	public void detach() throws IOException {
@@ -62,19 +69,19 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 		bb.putShort(handshakeFlags);
 		bb.flip();
 
-		writeData(ctx, bb);
+		ctx.writeAndFlush(Unpooled.wrappedBuffer(bb));
 	}
 
-	private void receiveTransmissionCommand(ChannelHandlerContext ctx, ByteBuffer message) throws IOException {
-		if(message.getInt() != 0x25609513) {
+	private void receiveTransmissionCommand(ChannelHandlerContext ctx, ByteBuf message) throws IOException {
+		if(message.readInt() != 0x25609513) {
 			throw new IllegalArgumentException();
 		}
 
-		short commandFlags = message.getShort();
-		short type = message.getShort();
-		long handle = message.getLong();
-		long offset = message.getLong(); //FIXME: unsigned!
-		long length = ByteUtil.u32ToLong(message.getInt());
+		short commandFlags = message.readShort();
+		short type = message.readShort();
+		long handle = message.readLong();
+		long offset = message.readLong(); //FIXME: unsigned!
+		long length = message.readUnsignedInt();
 
 		switch(type) {
 		case Protocol.NBD_CMD_READ:
@@ -85,7 +92,7 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 		}
 		case Protocol.NBD_CMD_WRITE:
 		{
-			exportProvider.write(exportName, offset, length, message);
+			exportProvider.write(exportName, offset, length, message.nioBuffer());
 			sendTransmissionSimpleReply(ctx, 0, handle, null);
 			break;
 		}
@@ -108,7 +115,7 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 			break;
 		}
 		default:
-			sendTransmissionSimpleReply(ctx, Protocol.NBD_REP_ERR_INVALID, handle, message);
+			sendTransmissionSimpleReply(ctx, Protocol.NBD_REP_ERR_INVALID, handle, null);
 		}
 	}
 
@@ -119,38 +126,35 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 		bbr.putLong(handle);
 		bbr.flip();
 
-		writeData(ctx, bbr);
+		ctx.write(Unpooled.wrappedBuffer(bbr));
 		if(data != null) {
-			writeData(ctx, data);
+			ctx.write(data);
 		}
+		ctx.flush();
 	}
 
-	private void receiveHandshakeClientFlag(ChannelHandlerContext ctx, ByteBuffer message) throws IOException {
-		clientFlags = message.getInt();
+	private void receiveHandshakeClientFlag(ChannelHandlerContext ctx, ByteBuf message) throws IOException {
+		clientFlags = message.readInt();
 		if((clientFlags & Protocol.NBD_FLAG_FIXED_NEWSTYLE) == 0)
 			ctx.close();
-//			ctx.close(new CloseReason(CloseReason.CloseCodes.CANNOT_ACCEPT, "unsupported negotiation method!"));
 	}
 
-	private String receiveHandshakeOption(ChannelHandlerContext ctx, ByteBuffer message) throws IOException {
+	private CharSequence receiveHandshakeOption(ChannelHandlerContext ctx, ByteBuf message) throws IOException {
 
-		if(message.getLong() != 0x49484156454F5054l)
+		if(message.readLong() != 0x49484156454F5054l)
 			throw new IllegalArgumentException();
 
-		int option = message.getInt();
-		long optionLen = ByteUtil.u32ToLong(message.getInt());
+		int option = message.readInt();
+		long optionLen = message.readUnsignedInt();
 
 		switch(option) {
 		case Protocol.NBD_OPT_EXPORT_NAME:
-
-			byte[] nba = new byte[message.remaining()];
-			message.get(nba);
-			String exportName = new String(nba, "UTF-8");
+			assert optionLen >= message.readableBytes();
+			CharSequence exportName = message.readCharSequence((int) optionLen, Charset.forName("UTF-8"));
 
 			long exportSize;
 			if((exportSize = exportProvider.open(exportName)) < 0) {
 				ctx.close();
-//				ctx.close(new CloseReason(CloseReason.CloseCodes.CANNOT_ACCEPT, "unknown export name!"));
 				break;
 			}
 
@@ -164,7 +168,7 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 				resp.position(resp.position() + 124);
 			}
 			resp.flip();
-			writeData(ctx, resp);
+			ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
 
 			state = State.TM_CMD;
 			return exportName;
@@ -190,9 +194,5 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 		ctx.write(optionReply);
 		if(data != null)
 			ctx.write(data);
-	}
-
-	private static void writeData(ChannelHandlerContext ctx, ByteBuffer bb) throws IOException {
-		ctx.write(bb);
 	}
 }
