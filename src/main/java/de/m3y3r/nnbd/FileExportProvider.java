@@ -44,9 +44,8 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public void write(CharSequence exportName, long offset, long length, ByteBuffer message) throws IOException {
+	public void write(CharSequence exportName, long offset, ByteBuffer message) throws IOException {
 		assert message != null;
-		assert length == message.remaining();
 
 		channel.position(offset);
 		channel.write(message);

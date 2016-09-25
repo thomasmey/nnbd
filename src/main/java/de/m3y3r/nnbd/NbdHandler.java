@@ -13,7 +13,7 @@ import io.netty.util.ReferenceCountUtil;
 
 public class NbdHandler extends ChannelInboundHandlerAdapter {
 
-	private enum State {HS_CLIENT_FLAGS, HS_OPTION_HAGGLING, TM_CMD};
+	private enum State {HS_CLIENT_FLAGS, HS_OPTION_HAGGLING, TM_RECEIVE_CMD, TM_CMD_WRITE};
 	private State state;
 
 	private short handshakeFlags;
@@ -22,6 +22,11 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 	private ExportProvider exportProvider;
 
 	private int clientFlags;
+
+	/* data from currently executing commmand */
+	private long cmdLength;
+	private long cmdHandle;
+	private long cmdOffset;
 
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
@@ -45,8 +50,27 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 				/* state transition happens in method! */
 				receiveHandshakeOption(ctx, bb);
 				break;
-			case TM_CMD:
+			case TM_RECEIVE_CMD:
 				receiveTransmissionCommand(ctx, bb);
+				break;
+
+			/* awkward implementation, isn't there another way to read more bytes while in this state?! */
+			case TM_CMD_WRITE:
+				long avail = bb.readableBytes();
+				if(avail <= cmdLength) {
+					exportProvider.write(exportName, cmdOffset, bb.readBytes((int) avail).nioBuffer());
+					cmdLength -= avail;
+					cmdOffset += avail;
+				} else {
+					exportProvider.write(exportName, cmdOffset, bb.readBytes((int) cmdLength).nioBuffer());
+					cmdLength = 0;
+				}
+
+				/* are we finished? send reply and switch back to cmd receive state */
+				if(cmdLength == 0) {
+					sendTransmissionSimpleReply(ctx, 0, cmdHandle, null);
+					state = State.TM_RECEIVE_CMD;
+				}
 				break;
 			}
 		}
@@ -77,45 +101,46 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 			throw new IllegalArgumentException();
 		}
 
-		short commandFlags = message.readShort();
-		short type = message.readShort();
-		long handle = message.readLong();
-		long offset = message.readLong(); //FIXME: unsigned!
-		long length = message.readUnsignedInt();
+		short cmdFlags = message.readShort();
+		short cmdType = message.readShort();
+		long cmdHandle = message.readLong();
+		long cmdOffset = message.readLong(); //FIXME: unsigned!
+		long cmdLength = message.readUnsignedInt();
 
-		switch(type) {
+		switch(cmdType) {
 		case Protocol.NBD_CMD_READ:
 		{
-			ByteBuffer data = exportProvider.read(exportName, offset, length);
-			sendTransmissionSimpleReply(ctx, 0, handle, data);
+			ByteBuffer data = exportProvider.read(exportName, cmdOffset, cmdLength);
+			sendTransmissionSimpleReply(ctx, 0, cmdHandle, data);
 			break;
 		}
 		case Protocol.NBD_CMD_WRITE:
 		{
-			exportProvider.write(exportName, offset, length, message.nioBuffer());
-			sendTransmissionSimpleReply(ctx, 0, handle, null);
+			this.cmdLength = cmdLength;
+			this.cmdHandle = cmdHandle;
+			this.cmdOffset = cmdOffset;
+			this.state = State.TM_CMD_WRITE;
 			break;
 		}
 		case Protocol.NBD_CMD_DISC:
 		{
-//			ctx.close(new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "Good-bye!"));
-			ctx.close();
+ 			ctx.close();
 			break;
 		}
 		case Protocol.NBD_CMD_FLUSH:
 		{
 			exportProvider.flush(exportName);
-			sendTransmissionSimpleReply(ctx, 0, handle, null);
+			sendTransmissionSimpleReply(ctx, 0, cmdHandle, null);
 			break;
 		}
 		case Protocol.NBD_CMD_TRIM:
 		{
 			exportProvider.trim(exportName);
-			sendTransmissionSimpleReply(ctx, 0, handle, null);
+			sendTransmissionSimpleReply(ctx, 0, cmdHandle, null);
 			break;
 		}
 		default:
-			sendTransmissionSimpleReply(ctx, Protocol.NBD_REP_ERR_INVALID, handle, null);
+			sendTransmissionSimpleReply(ctx, Protocol.NBD_REP_ERR_INVALID, cmdHandle, null);
 		}
 	}
 
@@ -128,7 +153,7 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 
 		ctx.write(Unpooled.wrappedBuffer(bbr));
 		if(data != null) {
-			ctx.write(data);
+			ctx.write(Unpooled.wrappedBuffer(data));
 		}
 		ctx.flush();
 	}
@@ -170,7 +195,7 @@ public class NbdHandler extends ChannelInboundHandlerAdapter {
 			resp.flip();
 			ctx.writeAndFlush(Unpooled.wrappedBuffer(resp));
 
-			state = State.TM_CMD;
+			state = State.TM_RECEIVE_CMD;
 			return exportName;
 
 		default:

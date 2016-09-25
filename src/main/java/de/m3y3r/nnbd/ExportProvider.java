@@ -8,7 +8,7 @@ public interface ExportProvider extends Closeable {
 
 	long open(CharSequence exportName) throws IOException;
 	ByteBuffer read(CharSequence exportName, long offset, long length) throws IOException;
-	void write(CharSequence exportName, long offset, long length, ByteBuffer message)throws IOException;
+	void write(CharSequence exportName, long offset, ByteBuffer message)throws IOException;
 	void flush(CharSequence exportName)throws IOException;
 	void trim(CharSequence exportName)throws IOException;
 }

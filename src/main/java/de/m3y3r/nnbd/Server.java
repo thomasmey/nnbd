@@ -29,7 +29,6 @@ public class Server implements Runnable {
 
 	@Override
 	public void run() {
-		NbdHandler nbdHandler = new NbdHandler();
 		EventLoopGroup eventLoopGroup = new NioEventLoopGroup();
 		try {
 			ServerBootstrap b = new ServerBootstrap();
@@ -39,7 +38,7 @@ public class Server implements Runnable {
 				.childHandler(new ChannelInitializer<SocketChannel>() {
 					@Override
 					protected void initChannel(SocketChannel ch) throws Exception {
-						ch.pipeline().addLast(nbdHandler);
+						ch.pipeline().addLast(new NbdHandler());
 					}
 				});
 			ChannelFuture f = b.bind().sync();
