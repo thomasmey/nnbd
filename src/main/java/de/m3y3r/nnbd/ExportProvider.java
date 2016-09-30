@@ -7,8 +7,8 @@ import java.nio.ByteBuffer;
 public interface ExportProvider extends Closeable {
 
 	long open(CharSequence exportName) throws IOException;
-	ByteBuffer read(CharSequence exportName, long offset, long length) throws IOException;
-	void write(CharSequence exportName, long offset, ByteBuffer message)throws IOException;
-	void flush(CharSequence exportName)throws IOException;
-	void trim(CharSequence exportName)throws IOException;
+	ByteBuffer read(long offset, long length, boolean sync) throws IOException;
+	void write(long offset, ByteBuffer message, boolean sync) throws IOException;
+	void flush() throws IOException;
+	void trim() throws IOException;
 }

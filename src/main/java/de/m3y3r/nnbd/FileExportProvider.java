@@ -35,7 +35,7 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public ByteBuffer read(CharSequence exportName, long offset, long length) throws IOException {
+	public ByteBuffer read(long offset, long length, boolean sync) throws IOException {
 		ByteBuffer bb = ByteBuffer.allocate((int) length);
 		channel.position(offset);
 		channel.read(bb);
@@ -44,7 +44,7 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public void write(CharSequence exportName, long offset, ByteBuffer message) throws IOException {
+	public void write(long offset, ByteBuffer message, boolean sync) throws IOException {
 		assert message != null;
 
 		channel.position(offset);
@@ -52,12 +52,12 @@ public class FileExportProvider implements ExportProvider {
 	}
 
 	@Override
-	public void flush(CharSequence exportName) throws IOException {
+	public void flush() throws IOException {
 		channel.force(true);
 	}
 
 	@Override
-	public void trim(CharSequence exportName) {
+	public void trim() {
 		throw new UnsupportedOperationException();
 	}
 }

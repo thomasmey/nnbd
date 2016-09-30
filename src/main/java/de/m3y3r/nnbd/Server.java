@@ -38,7 +38,7 @@ public class Server implements Runnable {
 				.childHandler(new ChannelInitializer<SocketChannel>() {
 					@Override
 					protected void initChannel(SocketChannel ch) throws Exception {
-						ch.pipeline().addLast(new NbdHandler());
+						ch.pipeline().addLast(new NbdHandshakeInboundHandler());
 					}
 				});
 			ChannelFuture f = b.bind().sync();
