@@ -22,8 +22,8 @@ public class Server implements Runnable {
 	}
 
 	public static void main(String... args) {
-		int port = Integer.parseInt(args.length > 1 && args[0] != null ? args[0] : "10809");
-		Server s = new Server(port);
+		int nbdPort = Integer.parseInt(args.length > 1 && args[0] != null ? args[0] : "10809");
+		Server s = new Server(nbdPort);
 		s.run();
 	}
 

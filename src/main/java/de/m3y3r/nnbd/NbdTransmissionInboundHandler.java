@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import de.m3y3r.nnbd.ep.ExportProvider;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -16,8 +17,15 @@ public class NbdTransmissionInboundHandler extends ByteToMessageDecoder {
 	private enum State {TM_RECEIVE_CMD, TM_RECEIVE_CMD_DATA};
 	private State state = State.TM_RECEIVE_CMD;
 
+	private final ExportProvider exportProvider;
+
 	private static class Error {
 		public final static int EIO = 5;
+	}
+
+	public NbdTransmissionInboundHandler(ExportProvider exportProvider) {
+		super();
+		this.exportProvider = exportProvider;
 	}
 
 	private short cmdFlags;
@@ -63,16 +71,16 @@ public class NbdTransmissionInboundHandler extends ByteToMessageDecoder {
 			final long cmdLength = this.cmdLength;
 			final long cmdHandle = this.cmdHandle;
 			Runnable operation = () -> {
-				ExportProvider ep = ChannelManager.INSTANCE.getExportProvider(ctx.channel());
-				ByteBuffer data = null;
+				ByteBuf data = null;
 				int err = 0;
 				try {
 					//FIXME: use FUA/sync flag correctly
-					data = ep.read(cmdOffset, cmdLength, false);
+					ByteBuffer bb = exportProvider.read(cmdOffset, cmdLength, false);
+					data = Unpooled.wrappedBuffer(bb);
 				} catch(IOException e) {
 					err = Error.EIO;
 				} finally {
-					sendTransmissionSimpleReply(ctx, err, cmdHandle, Unpooled.wrappedBuffer(data));
+					sendTransmissionSimpleReply(ctx, err, cmdHandle, data);
 				}
 			};
 			GlobalEventExecutor.INSTANCE.execute(operation);
@@ -85,11 +93,10 @@ public class NbdTransmissionInboundHandler extends ByteToMessageDecoder {
 			final long cmdHandle = this.cmdHandle;
 			final ByteBuf buf = in.readBytes((int) cmdLength);
 			Runnable operation = () -> {
-				ExportProvider ep = ChannelManager.INSTANCE.getExportProvider(ctx.channel());
 				int err = 0;
 				try {
 					//FIXME: use FUA/sync flag correctly
-					ep.write(cmdOffset, buf.nioBuffer(), false);
+					exportProvider.write(cmdOffset, buf.nioBuffer(), false);
 				} catch(IOException e) {
 					err = Error.EIO;
 				} finally {

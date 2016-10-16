@@ -1,10 +1,12 @@
-package de.m3y3r.nnbd;
+package de.m3y3r.nnbd.ep.file;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+
+import de.m3y3r.nnbd.ep.ExportProvider;
 
 public class FileExportProvider implements ExportProvider {
 
@@ -59,5 +61,10 @@ public class FileExportProvider implements ExportProvider {
 	@Override
 	public void trim() {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public String create(CharSequence exportName, long size) throws IOException {
+		return null;
 	}
 }

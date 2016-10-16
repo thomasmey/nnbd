@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.List;
 
+import de.m3y3r.nnbd.ep.ExportProvider;
+import de.m3y3r.nnbd.ep.ExportProviders;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
@@ -64,15 +66,13 @@ public class NbdHandshakeInboundHandler extends ByteToMessageDecoder {
 		case Protocol.NBD_OPT_EXPORT_NAME:
 			CharSequence exportName = in.readCharSequence((int) currentOptionLen, Charset.forName("UTF-8"));
 
-			ExportProvider ep = ExportProviders.getNewDefault();
+			ExportProvider ep = ExportProviders.getNewDefault(clientFlags);
 			long exportSize = 0;
 			if((exportSize = ep.open(exportName)) < 0) {
 				// ep us unwilling to export this name
 				ctx.channel().close();
 				break;
 			}
-
-			ChannelManager.INSTANCE.addExportProvider(ctx.channel(), ep, clientFlags);
 
 			/* build response */
 			ByteBuf resp = ctx.alloc().buffer(256);
@@ -88,7 +88,7 @@ public class NbdHandshakeInboundHandler extends ByteToMessageDecoder {
 			//FIXME: transfer any remaining bytes into the transmission phase!
 			/* The NBD protocol has two phases: the handshake (HS_) and the transmission (TM_) */
 			// Handshake complete, switch to transmission phase
-			ctx.pipeline().addLast("transmission", new NbdTransmissionInboundHandler());
+			ctx.pipeline().addLast("transmission", new NbdTransmissionInboundHandler(ep));
 			ctx.pipeline().remove(this);
 			return exportName;
 
